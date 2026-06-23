@@ -1,0 +1,37 @@
+# DNA methylation pipeline configuration
+# Save as dnam_config.yml (or config.yml) in your project root.
+
+project_dir: "."
+sample_sheet: "data/sample_sheet_test.csv"
+results_dir: "results"
+run_name: "test"
+
+# Column names in the sample sheet
+sample_id_col: "Sample_ID"
+sample_sex_col: "Sex"
+
+# Execution
+ncores: 1
+seed: 123
+
+# Preprocessing / QC
+mask_threshold: 1
+collapse_betas: false
+run_classifier: false
+
+# Control normal selection
+# Use NULL to let the pipeline infer defaults.
+platform: null
+use_default_normal: true
+custom_normal: null
+
+# CNA calling
+# Use density plot in cna-report.pdf to determine the appropriate cutoff
+chr_length_cut: 5
+segment_cut_loss: -0.25
+segment_cut_gain: 0.15
+
+# Notes:
+# - sample_sheet must contain a Basename column pointing to IDAT basenames.
+# - If Sample_ID is missing, the pipeline can derive it from Basename.
+# - If Sex is missing, sex-mismatch QC will be skipped.
