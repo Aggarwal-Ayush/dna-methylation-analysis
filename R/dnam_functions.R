@@ -168,7 +168,7 @@ read_dynamic_file <- function(file_path, format = NULL) {
     time_copy <- system.time({
       copy_success <- file.copy(file_path, tmp_path, overwrite = TRUE)
     })
-    message("  File Copy Time: elapsed=", time_copy[3], "s.")
+    message("  File Copy Time: elapsed=", round(time_copy[3], 2), "s.")
     
     if (!copy_success) {
       warning("Warning: File copy to TMPDIR failed. Loading directly from source.")
@@ -375,7 +375,7 @@ save_dynamic_file <- function(object, file_path, copy_to_main = TRUE, overwrite 
     time_copy <- system.time(
       file.copy(from = write_path, to = file_path, overwrite = TRUE) 
     )
-    message("Copy Time (to final): elapsed=", time_copy[3], "s.")
+    message("Copy Time (to final): elapsed=", round(time_copy[3], 2), "s.")
     
     # Optional: Clean up the temporary file (good practice)
     file.remove(write_path) 
@@ -1481,7 +1481,7 @@ run_conumee <- function(
   }
   
   if (!is.null(out_path)) {
-    save_dynamic_file(cna, out_path)
+    save_dynamic_file(cna, out_path, overwrite = TRUE)
   }
   
   return(cna)
