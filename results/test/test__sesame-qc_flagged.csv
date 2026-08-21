@@ -1,3 +1,0 @@
-Sample_ID,frac_dt_mk,mean_intensity_MU,RGdistort,Sex,reported_sex,inferred_sex,detection_rate,intensity,dye_bias,flag_detection,flag_intensity,flag_dye_bias,flag_sex_mismatch,any_flag,flag_reason
-A,1,5611.01163513199,1.32187310893568,F,F,M,100,5611.01163513199,1.32187310893568,FALSE,FALSE,FALSE,TRUE,FALSE,sex_mismatch
-B,1,5630.26572759933,1.32991418889031,F,F,M,100,5630.26572759933,1.32991418889031,FALSE,FALSE,FALSE,TRUE,FALSE,sex_mismatch
