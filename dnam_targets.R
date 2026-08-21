@@ -91,10 +91,12 @@ sesame_targets <- list(
   
   tar_target(
     dnam_betas_collapsed, 
-    betasCollapseToPfx(
-      dnam_betas_standard,
-      BPPARAM = BiocParallel::MulticoreParam(max(1L, min(cfg$ncores, parallelly::availableCores())))
-    )
+    if (cfg$collapse_betas) {
+      betasCollapseToPfx(
+        dnam_betas_standard,
+        BPPARAM = BiocParallel::MulticoreParam(max(1L, min(cfg$ncores, parallelly::availableCores())))
+      )
+    } else NULL
   ),
   
   tar_target(
@@ -137,20 +139,20 @@ sesame_targets <- list(
     )
   ),
   
-  tar_target(
-    dnam_sigdf_qc_plots,
-    make_sesame_qc_visuals(
-      flag_df = dnam_sigdf_qc_flagged,
-      out_pdf = get_filepath("sesame-qc_plots.pdf"),
-      detection_col = "detection_rate",
-      intensity_col = "intensity",
-      dye_bias_col = "dye_bias",
-      flag_col = "any_flag",
-      reason_col = "flag_reason",
-      sample_col = cfg$sample_id_col,
-      bins = 30
-    )
-  ),
+  # tar_target(
+  #   dnam_sigdf_qc_plots,
+  #   make_sesame_qc_visuals(
+  #     flag_df = dnam_sigdf_qc_flagged,
+  #     out_pdf = get_filepath("sesame-qc_plots.pdf"),
+  #     detection_col = "detection_rate",
+  #     intensity_col = "intensity",
+  #     dye_bias_col = "dye_bias",
+  #     flag_col = "any_flag",
+  #     reason_col = "flag_reason",
+  #     sample_col = cfg$sample_id_col,
+  #     bins = 30
+  #   )
+  # ),
   
   # SNP heatmap
   tar_target(
@@ -162,12 +164,31 @@ sesame_targets <- list(
       betas_snp <- beta_vals[snp_idx, , drop = FALSE]
       
       # optional: keep most variable SNPs
-      vars <- matrixStats::rowVars(betas_snp, na.rm = TRUE)
+      # vars <- matrixStats::rowVars(betas_snp, na.rm = TRUE)
       betas_snp <- na.omit(betas_snp)
       
-      pdf(get_filepath("sesame-qc_snp-heatmap.pdf"), width = 70, height = 6)
+      # Determine heatmap/PDF width
+      n_samples <- ncol(betas_snp)
       
-      set.seed(123)
+      # ~4 mm per sample, bounded to avoid tiny/huge plots
+      heatmap_width_cm <- max(
+        10,
+        min(n_samples * 0.4, 140)
+      )
+      
+      # Convert cm -> inches and add room for legend/margins
+      pdf_width <- heatmap_width_cm / 2.54 + 2
+      
+      out_path <- get_filepath("sesame-qc_snp-heatmap.pdf")
+      
+      grDevices::pdf(
+        out_path,
+        width = pdf_width,
+        height = 6
+      )
+      
+      set.seed(cfg$seed)
+      
       h <- ComplexHeatmap::draw(
         ComplexHeatmap::Heatmap(
           betas_snp,
@@ -175,13 +196,13 @@ sesame_targets <- list(
           cluster_rows = TRUE,
           cluster_columns = TRUE,
           show_row_names = FALSE,
-          heatmap_width = grid::unit(min(ncol(betas_snp), 140),"cm"),
-          show_row_dend = F,
-          show_column_dend = F
+          heatmap_width = grid::unit(heatmap_width_cm, "cm"),
+          show_row_dend = FALSE,
+          show_column_dend = FALSE
         )
       )
       
-      dev.off()
+      grDevices::dev.off()
       
       h
     }

@@ -31,15 +31,15 @@ The pipeline is configured through `dnam_config.yml`. Paths may be specified rel
 
 ### DNA methylation preprocessing
 
-- **`mask_threshold`**: Probe masking threshold used when producing masked beta values. In the current target logic, `1` means the separate masked-beta target is not generated; values below `1` trigger it.
+- **`mask_threshold`**: Controls probe masking when beta values are calculated. The threshold represents the minimum fraction of samples in which a probe must remain unmasked to be retained in the final beta-value matrix. Lower values are less stringent and retain more probes, while higher values require probes to pass masking criteria in a larger fraction of samples. A value of 1 requires a probe to be unmasked in all samples.
 - **`collapse_betas`**: Logical (`true`/`false`) controlling whether collapsed beta values are written.
 - **`run_classifier`**: Logical (`true`/`false`) controlling whether the methylation classifier is run.
 
 ### Array platform and normal controls
 
 - **`platform`**: DNA methylation array platform. Set to `null` when platform selection should be left unspecified for downstream helper logic; otherwise supply the platform identifier expected by those functions.
-- **`use_default_normal`**: Logical controlling whether the pipeline uses its default normal/control methylation samples.
-- **`custom_normal`**: Optional custom normal/control input. Set to `null` when none is supplied. The value must use the format expected by the pipeline's control-selection function.
+- **`use_default_normal`**: Logical (true/false) controlling whether normal control samples provided through the sesameData Bioconductor package are used for copy-number analysis. For samples profiled using the Illumina Infinium MethylationEPIC BeadChip (EPIC) or Illumina Infinium MethylationEPIC v2.0 BeadChip (EPICv2), the sesameData EPIC (EH6841 - EPIC.5.SigDF.normal) normal controls are used. For samples profiled using the Illumina Infinium HumanMethylation450 BeadChip (HM450/450K), the sesameData HM450 (HM450.10.TCGA.BLCA.normal and HM450.10.TCGA.PAAD.normal) normal controls are used.
+- **`custom_normal`**: Optional custom normal/control dataset for copy-number analysis. Custom normal IDAT files can first be processed through this same DNA methylation pipeline to generate the required processed normal data. The resulting normal dataset can then be supplied here as the custom control input. Set custom_normal: null when no custom normal dataset should be used.
 
 ### CNA calling
 
@@ -60,7 +60,7 @@ run_name: "test"
 sample_id_col: "Sample_ID"
 sample_sex_col: "Sex"
 
-ncores: 8
+ncores: 1
 seed: 123
 
 mask_threshold: 1

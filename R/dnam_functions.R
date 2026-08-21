@@ -684,7 +684,7 @@ mylapply <- function(
     FUN,
     ...,
     n_cores = NULL,
-    reserve_fraction = 3,
+    reserve_fraction = 1,
     export_objects = NULL,
     verbose = TRUE
 ) {
@@ -1429,8 +1429,6 @@ run_conumee <- function(
   sample_ids <- names(ssets_tumor)
   n_samples  <- length(sample_ids)
   
-  allcores <- parallelly::availableCores()
-  usable_cores <- max(1L, min(ncores, n_samples, as.integer(floor(allcores / 3))))
   
   process_sample <- function(sample_id) {
     itum <- CNV.load(totalIntensities(ssets_tumor[[sample_id]]))
@@ -1443,16 +1441,11 @@ run_conumee <- function(
     y
   }
   
-  if (.Platform$OS.type == "windows" || usable_cores == 1L) {
-    cna_list <- lapply(sample_ids, process_sample)
-  } else {
-    cna_list <- parallel::mclapply(
-      sample_ids,
-      process_sample,
-      mc.cores = usable_cores,
-      mc.preschedule = FALSE
-    )
-  }
+  cna_list <- mylapply(
+    sample_ids,
+    process_sample,
+    n_cores = ncores
+  )
   
   names(cna_list) <- sample_ids
   
