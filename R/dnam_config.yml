@@ -11,13 +11,13 @@ sample_id_col: "Sample_ID"
 sample_sex_col: "Sex"
 
 # Execution
-ncores: 1
+ncores: 8
 seed: 123
 
 # Preprocessing / QC
 mask_threshold: 1
-collapse_betas: false
-run_classifier: false
+collapse_betas: true
+run_classifier: true
 
 # Control normal selection
 # Use NULL to let the pipeline infer defaults.
