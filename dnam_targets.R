@@ -141,7 +141,7 @@ sesame_targets <- list(
     dnam_sigdf_qc_plots,
     make_sesame_qc_visuals(
       flag_df = dnam_sigdf_qc_flagged,
-      out_pdf = get_filepath("sesame-qc_plots.csv"),
+      out_pdf = get_filepath("sesame-qc_plots.pdf"),
       detection_col = "detection_rate",
       intensity_col = "intensity",
       dye_bias_col = "dye_bias",

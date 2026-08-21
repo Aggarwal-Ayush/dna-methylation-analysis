@@ -4,31 +4,77 @@
 
 ```bash
 Rscript run_pipeline.R \
-  --sample_sheet data/processed/sample_sheet.csv \
-  --project_dir . \
-  --output_dir output \
-  --run_name dnam_analysis \
-  --sample_id_col Sample_ID \
-  --sample_sex_col Sex \
-  --ncores 8
+  --config dnam_config.yml
 ```
 
-## Optional flags
 
-`--mask_threshold`  
-Default: `1`
+## Configuration parameters
 
-`--collapse_betas`  
-Default: `FALSE`
+The pipeline is configured through `dnam_config.yml`. Paths may be specified relative to `project_dir`.
 
-`--run_classifier`  
-Default: `FALSE`
+### Project and input paths
 
-`--platform`  
-Default: `EPICv2`
+- **`project_dir`**: Root directory of the analysis project. Use `"."` when running from the project root.
+- **`sample_sheet`**: Path to the sample metadata file. It must contain a `Basename` column pointing to IDAT basenames.
+- **`results_dir`**: Directory where pipeline results are written.
+- **`run_name`**: Name of the analysis run. Results are organized under `<results_dir>/<run_name>/`.
 
-`--seed`  
-Default: `123`
+### Sample sheet columns
+
+- **`sample_id_col`**: Column containing unique sample identifiers. The supplied default is `"Sample_ID"`. If absent, the pipeline can derive IDs from `Basename`.
+- **`sample_sex_col`**: Column containing reported sample sex. The supplied default is `"Sex"` and it is used for sex-mismatch QC. If absent, sex-mismatch QC is skipped.
+
+### Execution
+
+- **`ncores`**: Number of CPU cores available to parallelized steps. Set this according to the workstation or HPC allocation.
+- **`seed`**: Random seed for reproducible operations.
+
+### DNA methylation preprocessing
+
+- **`mask_threshold`**: Probe masking threshold used when producing masked beta values. In the current target logic, `1` means the separate masked-beta target is not generated; values below `1` trigger it.
+- **`collapse_betas`**: Logical (`true`/`false`) controlling whether collapsed beta values are written.
+- **`run_classifier`**: Logical (`true`/`false`) controlling whether the methylation classifier is run.
+
+### Array platform and normal controls
+
+- **`platform`**: DNA methylation array platform. Set to `null` when platform selection should be left unspecified for downstream helper logic; otherwise supply the platform identifier expected by those functions.
+- **`use_default_normal`**: Logical controlling whether the pipeline uses its default normal/control methylation samples.
+- **`custom_normal`**: Optional custom normal/control input. Set to `null` when none is supplied. The value must use the format expected by the pipeline's control-selection function.
+
+### CNA calling
+
+- **`chr_length_cut`**: Chromosome-length cutoff used by the CNA workflow. The supplied configuration uses `5`.
+- **`segment_cut_loss`**: CNA segment threshold for losses. The supplied configuration uses `-0.25`.
+- **`segment_cut_gain`**: CNA segment threshold for gains. The supplied configuration uses `0.15`.
+
+Use the density plot in the generated CNA report to assess whether the gain and loss thresholds are appropriate for a particular dataset.
+
+## Example configuration
+
+```yaml
+project_dir: "."
+sample_sheet: "data/sample_sheet_test.csv"
+results_dir: "results"
+run_name: "test"
+
+sample_id_col: "Sample_ID"
+sample_sex_col: "Sex"
+
+ncores: 8
+seed: 123
+
+mask_threshold: 1
+collapse_betas: true
+run_classifier: true
+
+platform: null
+use_default_normal: true
+custom_normal: null
+
+chr_length_cut: 5
+segment_cut_loss: -0.25
+segment_cut_gain: 0.15
+```
 
 ## Sample sheet requirements
 
@@ -42,6 +88,6 @@ If `Sex` is not present, sex mismatch QC is skipped automatically.
 
 All outputs are written under:
 
-`output/<run_name>/`
+`results/<run_name>/`
 
 with a manifest CSV listing the main artifacts.
