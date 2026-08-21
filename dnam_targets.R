@@ -100,7 +100,8 @@ sesame_targets <- list(
   tar_target(
     dnam_betas_collapsed_file, 
     if (cfg$collapse_betas) {
-      save_dynamic_file(dnam_betas_collapsed, get_filepath("betas_collapsed.csv"))
+      save_dynamic_file(dnam_betas_collapsed, get_filepath("betas_collapsed.csv"),
+                        overwrite = TRUE)
     } else {
       NULL
     }, format = "file"
