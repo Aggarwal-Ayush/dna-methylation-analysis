@@ -1402,6 +1402,48 @@ svm_classifier <- function(beta_values, platform = c("HM450", "EPICv2"), out_pat
 
 # Conumee 2 ---------------------------------------------------------------
 
+infer_genome_build <- function(
+    ssets_tumor, ssets_control
+) {
+  tumor_platform <- if(is.data.frame(ssets_tumor)) sdfPlatform(ssets_tumor) else sdfPlatform(ssets_tumor[[1]])
+  tumor_platform <- ifelse(tumor_platform == "HM450", "450k", tumor_platform)
+  
+  control_platform <- if(is.data.frame(ssets_control)) sdfPlatform(ssets_control) else sdfPlatform(ssets_control[[1]])
+  control_platform <- ifelse(control_platform == "HM450", "450k", control_platform)
+  
+  array_type = unique(c(control_platform, tumor_platform))
+  
+  if (identical(array_type, "EPICv2")) {
+    return("hg38")
+  } else return("hg19")
+}
+
+get_detail_regions <- function(
+    genome_build, genes_to_annotate = "default", detail_regions_path = NULL
+) {
+  if (genome_build == "hg19") {
+    data("detail_regions")
+  }
+  
+  if (genome_build == "hg38") {
+    data("detail_regions.hg38")
+  }
+  
+  # Custom
+  if (!is.null(detail_regions_path) & !"default" %in% genes_to_annotate) {
+    new_detail_regions <- read_dynamic_file(detail_regions_path)
+    common_genes <- intersect(genes_to_annotate, new_detail_regions$name)
+    if (length(common_genes) == 0) {
+      message("No genes to annotate found. Reverting to default...")
+    } else {
+      detail_regions <- new_detail_regions[new_detail_regions$name %in% common_genes]
+    }
+  }
+  
+  detail_regions
+  
+}
+
 run_conumee <- function(
     ssets_tumor, ssets_control, ncores = 1, out_path = NULL, ...
 ) {
@@ -1431,13 +1473,13 @@ run_conumee <- function(
   
   
   process_sample <- function(sample_id) {
-    itum <- CNV.load(totalIntensities(ssets_tumor[[sample_id]]))
-    y <- CNV.fit(itum, inorm, anno)
+    itum <- conumee2::CNV.load(sesame::totalIntensities(ssets_tumor[[sample_id]]))
+    y <- conumee2::CNV.fit(itum, inorm, anno)
     names(y) <- sample_id
-    y <- CNV.bin(y)
-    y <- CNV.detail(y)
-    y <- CNV.segment(y)
-    y <- CNV.focal(y)
+    y <- conumee2::CNV.bin(y)
+    y <- conumee2::CNV.detail(y)
+    y <- conumee2::CNV.segment(y)
+    y <- conumee2::CNV.focal(y)
     y
   }
   
@@ -1456,8 +1498,6 @@ run_conumee <- function(
       cna <- CNV.combine(cna, cna_list[[i]])
     }
   }
-  
-  cna@name <- attr(ssets_control, "control_name")
   
   # calculate bin and details on combined object
   cna <- CNV.bin(cna)
@@ -1485,11 +1525,10 @@ get_conumee_segments <- function(cna_data, csv_path = NULL) {
   
   seg_list <- CNV.write(cna_data, what = "segments")
   seg_df <- do.call(rbind, seg_list)
-  seg_df$control <- cna_data@name
   
   if (!is.null(csv_path)) {
     if (isTRUE(file.info(csv_path)$isdir)) {
-      out_path <- file.path(csv_path, paste0("conumee2_cna-segments-combined_", cna_data@name, ".csv"))
+      out_path <- file.path(csv_path, paste0("conumee2_cna-segments-combined_.csv"))
     } else out_path <- csv_path
     
     data.table::fwrite(x = seg_df, file = out_path)

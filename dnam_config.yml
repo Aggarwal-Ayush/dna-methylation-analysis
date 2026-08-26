@@ -2,7 +2,7 @@
 # Save as dnam_config.yml (or config.yml) in your project root.
 
 project_dir: "."
-sample_sheet: "data/sample_sheet_test.csv"
+sample_sheet: "data/test-450k/sample_sheet_test.csv"
 results_dir: "results"
 run_name: "test"
 
@@ -22,8 +22,8 @@ run_classifier: true
 # Control normal selection
 # Use NULL to let the pipeline infer defaults.
 platform: null
-use_default_normal: true
 custom_normal: null
+genes_to_annotate: "default"
 
 # CNA calling
 # Use density plot in cna-report.pdf to determine the appropriate cutoff

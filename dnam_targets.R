@@ -210,39 +210,49 @@ sesame_targets <- list(
 )
 
 
-control_targets <- list(
-  tar_target(
-    dnam_control_list,
-    get_control_ssets(
-      ssets = dnam_sigdf,
-      platform = cfg$platform,
-      use_default = cfg$use_default_normal,
-      custom_ssets = cfg$custom_normal
-    )
-  )
-)
-
-
 # * CONUMEE 2 ---------------------------------------------------------------
 
 conumee_targets <- list(
+  # control
+  tar_target(
+    dnam_control,
+    if (is.null(cfg$custom_normal)) {
+      sesameDataGet("EPIC.5.SigDF.normal")
+    } else read_dynamic_file(cfg$custom_normal)
+  ),
+  
+  # detail regions
+  tar_target(
+    dnam_conumee2_detail_regions,
+    {
+      genome_build <- infer_genome_build(
+        ssets_tumor = dnam_sigdf,
+        ssets_control = dnam_control
+      )
+      
+      detail_regions_path <- ifelse(
+        genome_build == "hg38",
+        file.path("data/detail_regions_hg38.qs2"),
+        file.path("data/detail_regions_hg19.qs2")
+      )
+      get_detail_regions(
+        genome_build = genome_build,
+        genes_to_annotate = cfg$genes_to_annotate,
+        detail_regions_path = detail_regions_path
+      )
+    }
+  ),
+  
   # conumee cna
   tar_target(
     dnam_conumee2_cna_data,
-    {
-      data(detail_regions)
-      dnam_control <- dnam_control_list[[1]]
-      control_name <- attr(dnam_control, "control_name")
-      run_conumee(
-        ssets_tumor = dnam_sigdf,
-        ssets_control = dnam_control,
-        detail_regions = detail_regions,
-        ncores = cfg$ncores,
-        out_path = get_filepath(sprintf("conumee2_cna-data--%s.qs2",control_name))
-      )
-    },
-    pattern = map(dnam_control_list),
-    iteration = "list"
+    run_conumee(
+      ssets_tumor = dnam_sigdf,
+      ssets_control = dnam_control,
+      detail_regions = dnam_conumee2_detail_regions,
+      ncores = cfg$ncores,
+      out_path = get_filepath("conumee2_cna-data.qs2")
+    )
   ),
   
   tar_target(
@@ -251,23 +261,19 @@ conumee_targets <- list(
       cna_data <- dnam_conumee2_cna_data
       get_conumee_segments(
         cna_data = cna_data,
-        csv_path = get_filepath(sprintf("conumee2_cna-segments--%s.csv", cna_data@name))
+        csv_path = get_filepath(sprintf("conumee2_cna-segments.csv"))
       )
-    },
-    pattern = map(dnam_conumee2_cna_data),
-    iteration = "list"
+    }
   ),
   
   tar_target(
     dnam_conumee2_cna_plots,
     {
       cna_data <- dnam_conumee2_cna_data
-      out_path <- get_filepath(sprintf("conumee2_cna-report-%s.pdf", cna_data@name))
+      out_path <- get_filepath(sprintf("conumee2_cna-report.pdf"))
       plot_cna_summary(cna_data, out_path)
       out_path
-    },
-    pattern = map(dnam_conumee2_cna_data),
-    format = "file"
+    }
   ),
   
   tar_target(
@@ -277,8 +283,7 @@ conumee_targets <- list(
       lt <- cfg$segment_cut_loss
       gt <- cfg$segment_cut_gain
       out_path <- get_filepath(
-        sprintf("conumee2_summary-plot--%s-loss%s-gain%s.pdf", 
-                cna_data@name, lt, gt)
+        sprintf("conumee2_summary-plot-loss%s-gain%s.pdf", lt, gt)
       )
       pdf(out_path, width = 8*2, height = 6)
       CNV.summaryplot.mod(
@@ -288,9 +293,7 @@ conumee_targets <- list(
       )
       dev.off()
       out_path
-    },
-    pattern = map(dnam_conumee2_cna_data),
-    format = "file"
+    }
   )
 )
 
@@ -318,7 +321,6 @@ svm_targets <- list(
 
 dnam_targets <- c(
   sesame_targets,
-  control_targets,
   conumee_targets,
   svm_targets
 )
