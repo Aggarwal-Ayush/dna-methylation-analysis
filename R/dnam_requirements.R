@@ -33,6 +33,7 @@ required_packages =
       "tidyr",
       "stringr",
       "reshape2",
+      "ggrepel",
       "scales",
       "qs2",
       "RColorBrewer",

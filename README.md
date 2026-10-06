@@ -24,15 +24,36 @@ The pipeline is configured through `dnam_config.yml`. Paths may be specified rel
 - **`sample_id_col`**: Column containing unique sample identifiers. The supplied default is `"Sample_ID"`. If absent, the pipeline can derive IDs from `Basename`.
 - **`sample_sex_col`**: Column containing reported sample sex. The supplied default is `"Sex"` and it is used for sex-mismatch QC. If absent, sex-mismatch QC is skipped.
 
-### Differential methylation (optional)
+### Differential methylation with DMRcate (optional)
 
-- **`condition_col`**: Sample sheet column defining groups (default `"condition"`). If the column is absent, differential analysis is skipped.
+Adapted from the [Clark lab EPICv2 tutorial](https://clark-lab.github.io/EPICv2_tutorial/) (sections 5.2, 5.3, 5.4 and 6.1). Groups are taken from an optional sample sheet column; if it is absent the DMR step and heatmaps are skipped (the QC filtering and plots still run).
+
+- **`condition_col`**: Sample sheet column defining groups (default `"condition"`).
 - **`condition_reference`**: Baseline level; each other level is compared against it. `null` uses the first level alphabetically.
-- **`condition_covariates`**: Optional list of additional sample sheet columns to adjust for (e.g. `["Sex"]`).
+- **`condition_covariates`**: Optional list of additional sample sheet columns added to the design (e.g. `["Sex"]`).
 
-Probes are tested with limma on M-values (`run_differential_methylation()`), each group needs at least 2 samples, and samples with a blank condition are excluded. Results (`logFC` on the M-value scale, `delta_beta`, `P.Value`, `adj.P.Val`) are written to `<run_name>__differential-methylation.csv`, with one file per contrast when there are more than two groups.
+**5.2 Detection p-value filtering** (`get_detection_pvals()`, `filter_betas_detp()`)
+- **`detp_cutoff`**: Probe/sample values with detection P above this fail and are set to `NA`.
+- **`detp_probe_fail_frac`**: Probes failing in more than this fraction of samples are removed (tutorial: 0.2 for its small dataset, 0.1 for larger ones).
+- **`detp_sample_fail_frac`**: Samples with at least this fraction of probes failing are removed.
 
-A PDF, `<run_name>__differential-methylation_heatmaps.pdf`, is also written with three ComplexHeatmap pages per comparison (using only the two compared groups): the top 10,000 probes per condition by `logFC` (largest logFC in each direction), probes with `P.Value <= 0.05`, and probes with `adj.P.Val <= 0.05`. Columns are annotated and split by condition; rows are annotated and split by the condition with higher methylation (sign of `logFC`). Row clustering is skipped (rows ordered by P-value) for heatmaps with more than 20,000 probes. The top-N cap is the `top_n` argument of `plot_differential_heatmaps()`.
+**5.3 Probe cleaning** (`clean_betas_dmrcate()`, DMRcate `rmSNPandCH()` / `rmPosReps()`)
+- **`snp_dist`**, **`snp_mafcut`**: Remove probes within `snp_dist` bp of SNPs with MAF above `snp_mafcut`.
+- **`remove_crosshyb`**, **`remove_xy`**: Remove cross-hybridising and/or X/Y probes.
+- **`replicate_strategy`**: How EPICv2 replicate probes are collapsed (`mean`, `sensitivity`, `specificity`, `random`; `null` keeps them). Ignored for non-EPICv2 arrays. Cleaned betas are written to `<run_name>__betas_clean.csv`.
+
+**5.4 Survey plots** (`plot_dmr_qc()`): density plots (by group and by sample) and an MDS plot in `<run_name>__dmr-qc_density-mds.pdf`. MDS uses probes with no missing values and needs at least 3 samples.
+
+**6.1 DMRcate** (`run_dmrcate()`)
+- **`dmr_arraytype`**: `450K`, `EPICv1` or `EPICv2`; `null` infers it from the platform.
+- **`dmr_genome`**: `hg19` or `hg38`; `null` uses hg38 for EPICv2 and hg19 otherwise.
+- **`dmr_cpg_fdr`**: Optional individual-CpG FDR (`changeFDR()`); the tutorial uses `1e-10` when more than 500,000 CpGs are significant.
+- **`dmr_lambda`**, **`dmr_C`**, **`dmr_betacutoff`**, **`dmr_min_cpgs`**: Passed to `dmrcate()`; `null` uses the DMRcate default.
+- **`dmr_plot_n`**: Number of top DMRs drawn with `DMR.plot()` in `<run_name>__dmrcate_dmr-plots.pdf` (0 disables).
+
+DMRs are written to `<run_name>__dmrcate_dmrs.csv` (one file per comparison when there are more than two groups).
+
+**Differential heatmaps.** `<run_name>__differential-methylation_heatmaps.pdf` has three ComplexHeatmap pages per comparison (using only the two compared groups): the top 10,000 probes per condition by `logFC` (largest logFC in each direction), probes with `P.Value <= 0.05`, and probes with `adj.P.Val <= 0.05`. The per-CpG statistics (`logFC` on the M-value scale, `delta_beta`, `P.Value`, `adj.P.Val`) come from the same limma model DMRcate fits. Columns are annotated and split by condition; rows by the condition with higher methylation (sign of `logFC`). Row clustering is skipped (rows ordered by P-value) for heatmaps with more than 20,000 probes. The top-N cap is the `top_n` argument of `plot_differential_heatmaps()`.
 
 ### Execution
 

@@ -1284,75 +1284,240 @@ process_betas <- function(ssets, mask_threshold = 1, collapse = FALSE, ncores = 
 }
 
 
-#' Differential DNA methylation analysis (limma on M-values)
+# DMRcate workflow (adapted from the Clark lab EPICv2 tutorial) -------------
+# https://clark-lab.github.io/EPICv2_tutorial/
+#   5.2 detection p-value filtering | 5.3 SNP/cross-hybridising/replicate probe
+#   removal | 5.4 density + MDS plots | 6.1 DMRcate (+ DMR plot)
+
+# Map a sesame platform name to the DMRcate arraytype
+dmrcate_arraytype <- function(platform) {
+  switch(
+    as.character(platform),
+    HM450 = "450K", `450K` = "450K",
+    EPIC = "EPICv1", EPICv1 = "EPICv1",
+    EPICv2 = "EPICv2",
+    stop("Unsupported platform for DMRcate: ", platform, call. = FALSE)
+  )
+}
+
+# Tutorial 5.2.1: detection p-values (pOOBAH) for each probe and sample
+get_detection_pvals <- function(ssets, ncores = 1) {
+  allcores <- parallelly::availableCores()
+  usable_cores <- max(1L, min(ncores, ceiling(allcores / 10), length(ssets)))
+  
+  openSesame(
+    ssets,
+    prep = "QCDPB",
+    func = pOOBAH,
+    return.pval = TRUE,
+    BPPARAM = BiocParallel::MulticoreParam(usable_cores)
+  )
+}
+
+# Tutorial 5.2.1 / 5.2.2: filter probes, then samples, on detection p-value
+# Failed (p > pval_cutoff, or NA) probes that are kept are set to NA in betas.
+filter_betas_detp <- function(
+    betas,
+    pvals,
+    pval_cutoff = 0.05,
+    probe_fail_frac = 0.2,
+    sample_fail_frac = 0.1
+) {
+  rows <- intersect(rownames(betas), rownames(pvals))
+  cols <- intersect(colnames(betas), colnames(pvals))
+  betas <- betas[rows, cols, drop = FALSE]
+  fail <- is.na(pvals[rows, cols, drop = FALSE]) | pvals[rows, cols, drop = FALSE] > pval_cutoff
+  
+  # probes failing in more than probe_fail_frac of samples
+  bad_probes <- rowMeans(fail) > probe_fail_frac
+  message(sum(bad_probes), " probes failed by having detection P > ", pval_cutoff,
+          " in more than ", probe_fail_frac * 100, "% of samples")
+  betas <- betas[!bad_probes, , drop = FALSE]
+  fail <- fail[!bad_probes, , drop = FALSE]
+  betas[fail] <- NA
+  
+  # samples with >= sample_fail_frac of the remaining probes failing
+  keep_samples <- colMeans(fail) < sample_fail_frac
+  message(sum(keep_samples), " of ", length(keep_samples), " samples passed QC with fewer than ",
+          sample_fail_frac * 100, "% of probes failing detection P > ", pval_cutoff)
+  if (any(!keep_samples)) {
+    message("Removed samples: ", paste(colnames(betas)[!keep_samples], collapse = ", "))
+  }
+  betas[, keep_samples, drop = FALSE]
+}
+
+# Tutorial 5.3: remove SNP / cross-hybridising (/ XY) probes and collapse
+# EPICv2 replicate probes using DMRcate
+clean_betas_dmrcate <- function(
+    betas,
+    snp_dist = 2,
+    snp_mafcut = 0.05,
+    remove_crosshyb = TRUE,
+    remove_xy = FALSE,
+    replicate_strategy = "mean",
+    out_path = NULL
+) {
+  clean <- DMRcate::rmSNPandCH(
+    betas,
+    dist = snp_dist,
+    mafcut = snp_mafcut,
+    rmcrosshyb = remove_crosshyb,
+    rmXY = remove_xy
+  )
+  
+  # Replicate probes only exist on EPICv2 (names end in e.g. _TC11)
+  has_reps <- any(grepl("_[TB][CO][0-9]+$", rownames(clean)))
+  if (has_reps && !is.null(replicate_strategy)) {
+    clean <- DMRcate::rmPosReps(clean, filter.strategy = replicate_strategy)
+  }
+  
+  message("Probes after SNP/CH/replicate cleaning: ", nrow(clean), " (from ", nrow(betas), ")")
+  if (!is.null(out_path)) save_dynamic_file(clean, out_path, copy_to_main = TRUE, overwrite = TRUE)
+  clean
+}
+
+# Tutorial 5.4: density plots (by group and by sample) and MDS plot -> PDF
+plot_dmr_qc <- function(
+    betas,
+    sample_sheet,
+    sample_id_col = "Sample_ID",
+    condition_col = "condition",
+    max_density_probes = 100000,
+    out_pdf
+) {
+  meta <- as.data.frame(sample_sheet, check.names = FALSE)
+  group <- if (!is.null(condition_col) && condition_col %in% names(meta)) {
+    as.character(meta[[condition_col]])[match(colnames(betas), meta[[sample_id_col]])]
+  } else rep("All", ncol(betas))
+  group[is.na(group) | group == ""] <- "NA"
+  names(group) <- colnames(betas)
+  
+  groups <- sort(unique(group))
+  group_cols <- stats::setNames(
+    RColorBrewer::brewer.pal(max(3, length(groups)), "Set2")[seq_along(groups)], groups
+  )
+  
+  # Density plots (random subset of probes keeps this fast on large arrays)
+  set.seed(1)
+  dens_betas <- betas[sample.int(nrow(betas), min(nrow(betas), max_density_probes)), , drop = FALSE]
+  x <- reshape2::melt(dens_betas)
+  x$Group <- group[as.character(x$Var2)]
+  p1 <- ggplot2::ggplot(x, ggplot2::aes(x = value, color = Group)) +
+    ggplot2::geom_density(na.rm = TRUE) +
+    ggplot2::scale_color_manual(values = group_cols) +
+    ggplot2::theme_minimal() +
+    ggplot2::ylab("Density") +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::ggtitle("Density Plot by Group Average")
+  p2 <- ggplot2::ggplot(x, ggplot2::aes(x = value, color = Var2)) +
+    ggplot2::geom_density(na.rm = TRUE) +
+    ggplot2::theme_minimal() +
+    ggplot2::ylab("Density") +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::ggtitle("Density Plot by Sample")
+  
+  grDevices::pdf(out_pdf, width = 9, height = 10)
+  on.exit(grDevices::dev.off(), add = TRUE)
+  print(p1 / p2)
+  
+  # MDS plot (probes with no missing values; needs >= 3 samples)
+  complete <- betas[stats::complete.cases(betas), , drop = FALSE]
+  if (ncol(complete) >= 3 && nrow(complete) > 0) {
+    mds <- limma::plotMDS(complete, top = nrow(complete), plot = FALSE)
+    toplot <- data.frame(x = mds$x, y = mds$y, Group = group[colnames(complete)],
+                         label = colnames(complete))
+    print(
+      ggplot2::ggplot(toplot, ggplot2::aes(x = x, y = y, colour = Group, label = label)) +
+        ggplot2::ggtitle("MDS - All Probes") +
+        ggplot2::geom_point(size = 3, alpha = 0.8) +
+        ggplot2::scale_colour_manual(values = group_cols) +
+        ggplot2::theme_bw() +
+        ggplot2::ylab("Dim 2") + ggplot2::xlab("Dim 1") +
+        ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
+                       legend.position = "bottom") +
+        ggrepel::geom_text_repel(min.segment.length = 0, box.padding = 1)
+    )
+  } else {
+    message("Fewer than 3 samples (or no complete probes); skipping MDS plot.")
+  }
+  
+  out_pdf
+}
+
+#' Differentially methylated regions with DMRcate (tutorial 6.1)
 #'
-#' Tests each probe for differential methylation between groups defined by an
-#' optional condition column in the sample sheet. Returns NULL (with a message)
-#' when the column is absent or the design is not testable.
+#' Groups come from `condition_col` in the sample sheet; each non-reference
+#' level is compared to the reference level (one DMRcate run per comparison).
+#' Returns NULL (with a message) when the column is absent or untestable.
 #'
-#' @param beta_values probes x samples beta matrix (colnames = sample IDs)
-#' @param sample_sheet data.frame containing sample_id_col and condition_col
-#' @param sample_id_col column of sample_sheet matching colnames(beta_values)
-#' @param condition_col name of the condition column; NULL/absent skips analysis
-#' @param reference_level level used as the baseline; default is the first
-#'   level in sorted order. Each other level is compared against it.
-#' @param covariate_cols optional extra sample sheet columns to adjust for
-#' @param min_per_group minimum samples required per tested group
-#' @param out_path optional CSV path; with several contrasts the contrast name
-#'   is added before the extension
-#' @return data.frame of results (probe, contrast, case, reference, logFC, delta_beta, AveExpr,
-#'   t, P.Value, adj.P.Val, B) or NULL
-run_differential_methylation <- function(
-    beta_values,
+#' @param betas probes x samples cleaned beta matrix (colnames = sample IDs)
+#' @param arraytype,genome DMRcate array type and genome build for extractRanges
+#' @param cpg_fdr optional individual-CpG FDR passed to changeFDR() (tutorial
+#'   uses 1e-10 when >500,000 CpGs are significant); NULL keeps the default
+#' @param lambda,C,betacutoff,min_cpgs passed to dmrcate(); NULL = DMRcate default
+#' @param plot_n number of top DMRs to draw with DMR.plot() (0 = none)
+#' @param out_path CSV path for DMRs (contrast name added if several)
+#' @param plot_pdf PDF path for DMR plots
+#' @return list(dmrs = data.frame of DMRs, cpg = per-CpG table with columns
+#'   probe, contrast, case, reference, logFC, delta_beta, AveExpr, t, P.Value,
+#'   adj.P.Val, B for the heatmaps) or NULL
+run_dmrcate <- function(
+    betas,
     sample_sheet,
     sample_id_col = "Sample_ID",
     condition_col = "condition",
     reference_level = NULL,
     covariate_cols = NULL,
     min_per_group = 2,
-    out_path = NULL
+    arraytype = "EPICv2",
+    genome = "hg38",
+    cpg_fdr = NULL,
+    lambda = 1000,
+    C = NULL,
+    betacutoff = NULL,
+    min_cpgs = 2,
+    plot_n = 1,
+    out_path = NULL,
+    plot_pdf = NULL
 ) {
   if (is.null(condition_col) || !condition_col %in% names(sample_sheet)) {
     message("Condition column '", condition_col, "' not found in sample sheet; ",
-            "skipping differential methylation analysis.")
+            "skipping DMRcate analysis.")
     return(NULL)
   }
-  
   missing_cov <- setdiff(covariate_cols, names(sample_sheet))
   if (length(missing_cov) > 0) {
     stop("Covariate column(s) not found in sample sheet: ",
          paste(missing_cov, collapse = ", "), call. = FALSE)
   }
   
-  # Align sample sheet to beta matrix; drop samples without a condition
+  # Align sample sheet to the beta matrix; drop samples lacking a condition
   meta <- as.data.frame(sample_sheet, check.names = FALSE)
-  meta <- meta[meta[[sample_id_col]] %in% colnames(beta_values), , drop = FALSE]
+  meta <- meta[match(colnames(betas), meta[[sample_id_col]]), , drop = FALSE]
   cond <- trimws(as.character(meta[[condition_col]]))
   cond[cond == ""] <- NA
   keep <- !is.na(cond)
   if (!is.null(covariate_cols)) {
     keep <- keep & stats::complete.cases(meta[, covariate_cols, drop = FALSE])
   }
-  if (any(!keep)) {
-    message(sum(!keep), " sample(s) with missing condition/covariates excluded.")
-  }
+  if (any(!keep)) message(sum(!keep), " sample(s) with missing condition/covariates excluded.")
   meta <- meta[keep, , drop = FALSE]
   cond <- cond[keep]
+  betas <- betas[, keep, drop = FALSE]
   
-  # Drop groups that are too small
   counts <- table(cond)
   small <- names(counts)[counts < min_per_group]
   if (length(small) > 0) {
     message("Dropping condition level(s) with < ", min_per_group, " samples: ",
             paste(small, collapse = ", "))
+    betas <- betas[, !cond %in% small, drop = FALSE]
     meta <- meta[!cond %in% small, , drop = FALSE]
     cond <- cond[!cond %in% small]
   }
   
   levels_all <- sort(unique(cond))
   if (length(levels_all) < 2) {
-    message("Fewer than two testable condition levels; ",
-            "skipping differential methylation analysis.")
+    message("Fewer than two testable condition levels; skipping DMRcate analysis.")
     return(NULL)
   }
   if (is.null(reference_level)) reference_level <- levels_all[1]
@@ -1362,74 +1527,114 @@ run_differential_methylation <- function(
   }
   levels_ord <- c(reference_level, setdiff(levels_all, reference_level))
   
-  # Design (levels made syntactically valid for limma contrasts)
-  level_ids <- make.names(levels_ord, unique = TRUE)
-  group <- factor(level_ids[match(cond, levels_ord)], levels = level_ids)
-  design_df <- data.frame(group = group)
+  # Design: ~ condition (+ covariates); coef picks the condition column
+  design_df <- data.frame(condition = factor(cond, levels = levels_ord))
   for (cc in covariate_cols) design_df[[cc]] <- meta[[cc]]
   design <- stats::model.matrix(
-    stats::reformulate(c("0", paste0("`", names(design_df), "`"))),
+    stats::reformulate(c("condition", paste0("`", covariate_cols, "`"))),
     data = design_df
   )
-  colnames(design) <- sub("^`?group`?", "", colnames(design))
-  
   if (nrow(design) <= ncol(design)) {
     stop("Not enough samples to fit the design (", nrow(design), " samples, ",
          ncol(design), " coefficients).", call. = FALSE)
   }
   
-  # M-values; probes with any NA are removed
-  betas <- beta_values[, meta[[sample_id_col]], drop = FALSE]
-  betas <- betas[stats::complete.cases(betas), , drop = FALSE]
+  # M values (betas clamped away from 0/1)
   eps <- 1e-6
-  b_clip <- pmax(pmin(betas, 1 - eps), eps)
-  mvals <- log2(b_clip / (1 - b_clip))
+  M <- BetaValueToMValue(pmax(pmin(betas, 1 - eps), eps))
   
-  message("Differential methylation: ", nrow(mvals), " probes, ",
-          ncol(mvals), " samples; reference = ", reference_level, "; groups: ",
-          paste(paste0(levels_ord, " (n=", as.integer(table(cond)[levels_ord]), ")"),
-                collapse = ", "))
+  cond_cols <- stats::setNames(
+    RColorBrewer::brewer.pal(max(3, length(levels_ord)), "Set2")[seq_along(levels_ord)],
+    levels_ord
+  )
   
-  fit <- limma::lmFit(mvals, design)
-  contrast_names <- paste0(level_ids[-1], "-", level_ids[1])
-  cont <- limma::makeContrasts(contrasts = contrast_names, levels = design)
-  fit <- limma::eBayes(limma::contrasts.fit(fit, cont), trend = TRUE, robust = TRUE)
+  message("DMRcate: ", nrow(M), " probes, ", ncol(M), " samples; reference = ",
+          reference_level, "; groups: ",
+          paste0(levels_ord, " (n=", as.integer(table(cond)[levels_ord]), ")", collapse = ", "))
   
-  res_list <- lapply(seq_along(contrast_names), function(i) {
-    tt <- limma::topTable(fit, coef = i, number = Inf, sort.by = "P")
-    case_cols <- which(group == level_ids[i + 1])
-    ref_cols <- which(group == level_ids[1])
-    delta <- rowMeans(betas[rownames(tt), case_cols, drop = FALSE]) -
-      rowMeans(betas[rownames(tt), ref_cols, drop = FALSE])
-    data.frame(
-      probe = rownames(tt),
-      contrast = paste0(levels_ord[i + 1], "_vs_", reference_level),
-      case = levels_ord[i + 1],
-      reference = reference_level,
-      logFC = tt$logFC,
-      delta_beta = as.numeric(delta),
-      AveExpr = tt$AveExpr,
-      t = tt$t,
-      P.Value = tt$P.Value,
-      adj.P.Val = tt$adj.P.Val,
-      B = tt$B,
-      stringsAsFactors = FALSE
+  if (!is.null(plot_pdf) && plot_n > 0) {
+    grDevices::pdf(plot_pdf, width = 10, height = 8)
+    on.exit(grDevices::dev.off(), add = TRUE)
+  }
+  
+  dmr_list <- list()
+  cpg_list <- list()
+  
+  for (lev in levels_ord[-1]) {
+    contrast <- paste0(lev, "_vs_", reference_level)
+    coef_idx <- match(paste0("condition", lev), colnames(design))
+    
+    # Per-CpG statistics (same limma model cpg.annotate fits); used for heatmaps
+    fit <- limma::eBayes(limma::lmFit(M, design))
+    tt <- limma::topTable(fit, coef = coef_idx, number = Inf, sort.by = "none")
+    case_cols <- which(cond == lev)
+    ref_cols <- which(cond == reference_level)
+    delta <- rowMeans(betas[rownames(tt), case_cols, drop = FALSE], na.rm = TRUE) -
+      rowMeans(betas[rownames(tt), ref_cols, drop = FALSE], na.rm = TRUE)
+    cpg_list[[contrast]] <- data.frame(
+      probe = rownames(tt), contrast = contrast, case = lev, reference = reference_level,
+      logFC = tt$logFC, delta_beta = as.numeric(delta), AveExpr = tt$AveExpr, t = tt$t,
+      P.Value = tt$P.Value, adj.P.Val = tt$adj.P.Val, B = tt$B, stringsAsFactors = FALSE
     )
-  })
-  names(res_list) <- vapply(res_list, function(x) x$contrast[1], character(1))
-  results <- do.call(rbind, res_list)
-  rownames(results) <- NULL
-  
-  if (!is.null(out_path)) {
-    ext <- tools::file_ext(out_path)
-    stem <- sub(paste0("\\.", ext, "$"), "", out_path)
-    for (nm in names(res_list)) {
-      f <- if (length(res_list) == 1) out_path else paste0(stem, "_", nm, ".", ext)
-      save_dynamic_file(res_list[[nm]], f, copy_to_main = TRUE, overwrite = TRUE)
+    
+    # Annotate CpGs with positions and weights
+    annot_args <- list(
+      datatype = "array", object = M, what = "M", arraytype = arraytype,
+      analysis.type = "differential", design = design, coef = coef_idx
+    )
+    if (arraytype == "EPICv2") annot_args$epicv2Remap <- FALSE
+    myannotation <- do.call(DMRcate::cpg.annotate, annot_args)
+    if (!is.null(cpg_fdr)) myannotation <- DMRcate::changeFDR(myannotation, cpg_fdr)
+    
+    # Run DMR analysis
+    dmr_args <- list(myannotation, lambda = lambda, min.cpgs = min_cpgs)
+    if (!is.null(C)) dmr_args$C <- C
+    if (!is.null(betacutoff)) dmr_args$betacutoff <- betacutoff
+    dmrcoutput <- tryCatch(
+      do.call(DMRcate::dmrcate, dmr_args),
+      error = function(e) {
+        message("dmrcate() failed for ", contrast, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (is.null(dmrcoutput)) next
+    
+    results.ranges <- DMRcate::extractRanges(dmrcoutput = dmrcoutput, genome = genome)
+    message(contrast, ": ", length(results.ranges), " DMRs")
+    if (length(results.ranges) == 0) next
+    
+    dmr_df <- as.data.frame(results.ranges)
+    dmr_list[[contrast]] <- data.frame(contrast = contrast, case = lev,
+                                       reference = reference_level, dmr_df,
+                                       stringsAsFactors = FALSE, check.names = FALSE)
+    
+    # Plot the top DMR(s)
+    if (!is.null(plot_pdf) && plot_n > 0) {
+      sample_cols <- cond_cols[cond]
+      for (i in seq_len(min(plot_n, length(results.ranges)))) {
+        tryCatch(
+          DMRcate::DMR.plot(
+            ranges = results.ranges, dmr = i, CpGs = betas, what = "Beta",
+            arraytype = arraytype, genome = genome, phen.col = unname(sample_cols)
+          ),
+          error = function(e) message("DMR.plot failed for ", contrast, " DMR ", i, ": ",
+                                      conditionMessage(e))
+        )
+      }
+    }
+    
+    if (!is.null(out_path)) {
+      ext <- tools::file_ext(out_path)
+      stem <- sub(paste0("\\.", ext, "$"), "", out_path)
+      f <- if (length(levels_ord) == 2) out_path else paste0(stem, "_", contrast, ".", ext)
+      save_dynamic_file(dmr_list[[contrast]], f, copy_to_main = TRUE, overwrite = TRUE)
     }
   }
   
-  results
+  list(
+    dmrs = if (length(dmr_list) > 0) do.call(rbind, dmr_list) else NULL,
+    cpg = do.call(rbind, unname(cpg_list))
+  )
 }
 
 
@@ -1445,7 +1650,7 @@ run_differential_methylation <- function(
 #'
 #' @param beta_values probes x samples beta matrix (colnames = sample IDs)
 #' @param sample_sheet data.frame containing sample_id_col and condition_col
-#' @param dm_results output of run_differential_methylation()
+#' @param dm_results per-CpG table from run_dmrcate()$cpg
 #' @param sample_id_col,condition_col sample sheet columns
 #' @param p_cutoff significance cutoff for pages 2 and 3
 #' @param top_n probes per condition shown on the all-probes page (ranked by
@@ -1545,6 +1750,9 @@ plot_differential_heatmaps <- function(
     samples <- intersect(samples, colnames(beta_values))
     cond <- cond_all[samples]
     betas <- beta_values[res$probe, samples, drop = FALSE]
+    ok <- stats::complete.cases(betas)  # probes failing detection are NA
+    res <- res[ok, , drop = FALSE]
+    betas <- betas[ok, , drop = FALSE]
     
     top_probes <- c(
       utils::head(res$probe[order(res$logFC, decreasing = TRUE)], top_n),
