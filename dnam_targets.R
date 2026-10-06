@@ -210,6 +210,25 @@ sesame_targets <- list(
 )
 
 
+# * DIFFERENTIAL METHYLATION --------------------------------------------------
+
+# Skipped (returns NULL) if the sample sheet lacks the condition column
+dmp_targets <- list(
+  tar_target(
+    dnam_differential,
+    run_differential_methylation(
+      beta_values = dnam_betas_standard,
+      sample_sheet = sample_sheet,
+      sample_id_col = cfg$sample_id_col,
+      condition_col = if (is.null(cfg$condition_col)) "condition" else cfg$condition_col,
+      reference_level = cfg$condition_reference,
+      covariate_cols = cfg$condition_covariates,
+      out_path = get_filepath("differential-methylation.csv")
+    )
+  )
+)
+
+
 # * CONUMEE 2 ---------------------------------------------------------------
 
 conumee_targets <- list(
@@ -321,6 +340,7 @@ svm_targets <- list(
 
 dnam_targets <- c(
   sesame_targets,
+  dmp_targets,
   conumee_targets,
   svm_targets
 )

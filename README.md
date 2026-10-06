@@ -24,6 +24,14 @@ The pipeline is configured through `dnam_config.yml`. Paths may be specified rel
 - **`sample_id_col`**: Column containing unique sample identifiers. The supplied default is `"Sample_ID"`. If absent, the pipeline can derive IDs from `Basename`.
 - **`sample_sex_col`**: Column containing reported sample sex. The supplied default is `"Sex"` and it is used for sex-mismatch QC. If absent, sex-mismatch QC is skipped.
 
+### Differential methylation (optional)
+
+- **`condition_col`**: Sample sheet column defining groups (default `"condition"`). If the column is absent, differential analysis is skipped.
+- **`condition_reference`**: Baseline level; each other level is compared against it. `null` uses the first level alphabetically.
+- **`condition_covariates`**: Optional list of additional sample sheet columns to adjust for (e.g. `["Sex"]`).
+
+Probes are tested with limma on M-values (`run_differential_methylation()`), each group needs at least 2 samples, and samples with a blank condition are excluded. Results (`logFC` on the M-value scale, `delta_beta`, `P.Value`, `adj.P.Val`) are written to `<run_name>__differential-methylation.csv`, with one file per contrast when there are more than two groups.
+
 ### Execution
 
 - **`ncores`**: Number of CPU cores available to parallelized steps. Set this according to the workstation or HPC allocation.

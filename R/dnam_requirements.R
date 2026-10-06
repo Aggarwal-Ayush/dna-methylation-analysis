@@ -54,6 +54,7 @@ required_packages =
       "sesame",
       "minfi",
       "DMRcate",
+      "limma",
       "IlluminaHumanMethylationEPICv2manifest",
       "ComplexHeatmap",
       "circlize"

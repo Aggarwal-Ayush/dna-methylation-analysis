@@ -1284,6 +1284,153 @@ process_betas <- function(ssets, mask_threshold = 1, collapse = FALSE, ncores = 
 }
 
 
+#' Differential DNA methylation analysis (limma on M-values)
+#'
+#' Tests each probe for differential methylation between groups defined by an
+#' optional condition column in the sample sheet. Returns NULL (with a message)
+#' when the column is absent or the design is not testable.
+#'
+#' @param beta_values probes x samples beta matrix (colnames = sample IDs)
+#' @param sample_sheet data.frame containing sample_id_col and condition_col
+#' @param sample_id_col column of sample_sheet matching colnames(beta_values)
+#' @param condition_col name of the condition column; NULL/absent skips analysis
+#' @param reference_level level used as the baseline; default is the first
+#'   level in sorted order. Each other level is compared against it.
+#' @param covariate_cols optional extra sample sheet columns to adjust for
+#' @param min_per_group minimum samples required per tested group
+#' @param out_path optional CSV path; with several contrasts the contrast name
+#'   is added before the extension
+#' @return data.frame of results (probe, contrast, logFC, delta_beta, AveExpr,
+#'   t, P.Value, adj.P.Val, B) or NULL
+run_differential_methylation <- function(
+    beta_values,
+    sample_sheet,
+    sample_id_col = "Sample_ID",
+    condition_col = "condition",
+    reference_level = NULL,
+    covariate_cols = NULL,
+    min_per_group = 2,
+    out_path = NULL
+) {
+  if (is.null(condition_col) || !condition_col %in% names(sample_sheet)) {
+    message("Condition column '", condition_col, "' not found in sample sheet; ",
+            "skipping differential methylation analysis.")
+    return(NULL)
+  }
+  
+  missing_cov <- setdiff(covariate_cols, names(sample_sheet))
+  if (length(missing_cov) > 0) {
+    stop("Covariate column(s) not found in sample sheet: ",
+         paste(missing_cov, collapse = ", "), call. = FALSE)
+  }
+  
+  # Align sample sheet to beta matrix; drop samples without a condition
+  meta <- as.data.frame(sample_sheet, check.names = FALSE)
+  meta <- meta[meta[[sample_id_col]] %in% colnames(beta_values), , drop = FALSE]
+  cond <- trimws(as.character(meta[[condition_col]]))
+  cond[cond == ""] <- NA
+  keep <- !is.na(cond)
+  if (!is.null(covariate_cols)) {
+    keep <- keep & stats::complete.cases(meta[, covariate_cols, drop = FALSE])
+  }
+  if (any(!keep)) {
+    message(sum(!keep), " sample(s) with missing condition/covariates excluded.")
+  }
+  meta <- meta[keep, , drop = FALSE]
+  cond <- cond[keep]
+  
+  # Drop groups that are too small
+  counts <- table(cond)
+  small <- names(counts)[counts < min_per_group]
+  if (length(small) > 0) {
+    message("Dropping condition level(s) with < ", min_per_group, " samples: ",
+            paste(small, collapse = ", "))
+    meta <- meta[!cond %in% small, , drop = FALSE]
+    cond <- cond[!cond %in% small]
+  }
+  
+  levels_all <- sort(unique(cond))
+  if (length(levels_all) < 2) {
+    message("Fewer than two testable condition levels; ",
+            "skipping differential methylation analysis.")
+    return(NULL)
+  }
+  if (is.null(reference_level)) reference_level <- levels_all[1]
+  if (!reference_level %in% levels_all) {
+    stop("reference_level '", reference_level, "' is not one of: ",
+         paste(levels_all, collapse = ", "), call. = FALSE)
+  }
+  levels_ord <- c(reference_level, setdiff(levels_all, reference_level))
+  
+  # Design (levels made syntactically valid for limma contrasts)
+  level_ids <- make.names(levels_ord, unique = TRUE)
+  group <- factor(level_ids[match(cond, levels_ord)], levels = level_ids)
+  design_df <- data.frame(group = group)
+  for (cc in covariate_cols) design_df[[cc]] <- meta[[cc]]
+  design <- stats::model.matrix(
+    stats::reformulate(c("0", paste0("`", names(design_df), "`"))),
+    data = design_df
+  )
+  colnames(design) <- sub("^`?group`?", "", colnames(design))
+  
+  if (nrow(design) <= ncol(design)) {
+    stop("Not enough samples to fit the design (", nrow(design), " samples, ",
+         ncol(design), " coefficients).", call. = FALSE)
+  }
+  
+  # M-values; probes with any NA are removed
+  betas <- beta_values[, meta[[sample_id_col]], drop = FALSE]
+  betas <- betas[stats::complete.cases(betas), , drop = FALSE]
+  eps <- 1e-6
+  b_clip <- pmax(pmin(betas, 1 - eps), eps)
+  mvals <- log2(b_clip / (1 - b_clip))
+  
+  message("Differential methylation: ", nrow(mvals), " probes, ",
+          ncol(mvals), " samples; reference = ", reference_level, "; groups: ",
+          paste(paste0(levels_ord, " (n=", as.integer(table(cond)[levels_ord]), ")"),
+                collapse = ", "))
+  
+  fit <- limma::lmFit(mvals, design)
+  contrast_names <- paste0(level_ids[-1], "-", level_ids[1])
+  cont <- limma::makeContrasts(contrasts = contrast_names, levels = design)
+  fit <- limma::eBayes(limma::contrasts.fit(fit, cont), trend = TRUE, robust = TRUE)
+  
+  res_list <- lapply(seq_along(contrast_names), function(i) {
+    tt <- limma::topTable(fit, coef = i, number = Inf, sort.by = "P")
+    case_cols <- which(group == level_ids[i + 1])
+    ref_cols <- which(group == level_ids[1])
+    delta <- rowMeans(betas[rownames(tt), case_cols, drop = FALSE]) -
+      rowMeans(betas[rownames(tt), ref_cols, drop = FALSE])
+    data.frame(
+      probe = rownames(tt),
+      contrast = paste0(levels_ord[i + 1], "_vs_", reference_level),
+      logFC = tt$logFC,
+      delta_beta = as.numeric(delta),
+      AveExpr = tt$AveExpr,
+      t = tt$t,
+      P.Value = tt$P.Value,
+      adj.P.Val = tt$adj.P.Val,
+      B = tt$B,
+      stringsAsFactors = FALSE
+    )
+  })
+  names(res_list) <- vapply(res_list, function(x) x$contrast[1], character(1))
+  results <- do.call(rbind, res_list)
+  rownames(results) <- NULL
+  
+  if (!is.null(out_path)) {
+    ext <- tools::file_ext(out_path)
+    stem <- sub(paste0("\\.", ext, "$"), "", out_path)
+    for (nm in names(res_list)) {
+      f <- if (length(res_list) == 1) out_path else paste0(stem, "_", nm, ".", ext)
+      save_dynamic_file(res_list[[nm]], f, copy_to_main = TRUE, overwrite = TRUE)
+    }
+  }
+  
+  results
+}
+
+
 get_control_ssets <- function(ssets, platform = c("HM450", "EPIC", "EPICv2"), use_default = TRUE, custom_ssets = NULL) {
   
   infer_platform <- if(is.data.frame(ssets)) sdfPlatform(ssets) else sdfPlatform(ssets[[1]])
