@@ -52,3 +52,4 @@ rsconnect/
 dnam_targets-test/
 /results
 .pipeline_config.rds
+_targets.yaml

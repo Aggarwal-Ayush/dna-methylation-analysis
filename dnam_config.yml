@@ -10,6 +10,33 @@ run_name: "test"
 sample_id_col: "Sample_ID"
 sample_sex_col: "Sex"
 
+# Sample groups for differential methylation (skipped if the column is absent)
+condition_col: "Condition"
+condition_reference: "Dura"     # baseline level; null = first level alphabetically
+condition_covariates: null      # optional extra sample sheet columns, e.g. ["Sex"]
+
+# DMRcate workflow (Clark lab EPICv2 tutorial)
+# 5.2 Detection p-value filtering
+detp_cutoff: 0.05               # probe/sample value fails if detection P > cutoff
+detp_probe_fail_frac: 0.2       # remove probes failing in > this fraction of samples (tutorial: 0.2 here, 0.1 for larger datasets)
+detp_sample_fail_frac: 0.1      # remove samples with >= this fraction of probes failing
+probe_na_sample_frac: 0.5       # remove probes with NA in >= this fraction of samples
+# 5.3 SNP / cross-hybridising / replicate probe handling
+snp_dist: 2                     # remove probes within this many bp of a common SNP (0 with snp_mafcut 1 keeps SNPs)
+snp_mafcut: 0.05                # minor allele frequency cut-off for SNPs
+remove_crosshyb: true           # remove cross-hybridising probes
+remove_xy: false                # remove X/Y chromosome probes
+replicate_strategy: "mean"      # EPICv2 replicate probes: mean, sensitivity, specificity, random (null = keep)
+# 6.1 DMRcate
+dmr_arraytype: null             # "450K", "EPICv1" or "EPICv2"; null = infer from platform
+dmr_genome: null                # "hg19" or "hg38"; null = hg38 for EPICv2, hg19 otherwise
+dmr_cpg_fdr: null               # individual-CpG FDR for changeFDR(); tutorial uses 1e-10 when >500,000 CpGs are significant
+dmr_lambda: 1000                # dmrcate() smoothing bandwidth
+dmr_C: null                     # dmrcate() scaling factor; null = DMRcate default
+dmr_betacutoff: null            # optional minimum beta change for a DMR; null = none
+dmr_min_cpgs: 2                 # minimum CpGs per DMR
+dmr_plot_n: 1                   # number of top DMRs to plot (0 = none)
+
 # Execution
 ncores: 8
 seed: 123

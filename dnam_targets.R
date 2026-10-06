@@ -210,6 +210,99 @@ sesame_targets <- list(
 )
 
 
+# * DMRCATE (Clark lab EPICv2 tutorial) ----------------------------------------
+
+cfg_get <- function(x, default) if (is.null(x)) default else x
+
+dmr_targets <- list(
+  # Platform for DMRcate (config value, else inferred from the first SigDF)
+  tar_target(
+    dnam_platform,
+    if (is.null(cfg$platform)) sdfPlatform(dnam_sigdf[[1]]) else cfg$platform
+  ),
+  
+  # 5.2 detection p-value filtering of probes and samples
+  tar_target(
+    dnam_detp,
+    get_detection_pvals(dnam_sigdf, ncores = cfg$ncores)
+  ),
+  
+  tar_target(
+    dnam_betas_detp,
+    filter_betas_detp(
+      dnam_betas_standard,
+      dnam_detp,
+      pval_cutoff = cfg_get(cfg$detp_cutoff, 0.05),
+      probe_fail_frac = cfg_get(cfg$detp_probe_fail_frac, 0.2),
+      sample_fail_frac = cfg_get(cfg$detp_sample_fail_frac, 0.1)
+    )
+  ),
+  
+  # 5.3 remove SNP / cross-hybridising / replicate probes
+  tar_target(
+    dnam_betas_clean,
+    clean_betas_dmrcate(
+      dnam_betas_detp,
+      snp_dist = cfg_get(cfg$snp_dist, 2),
+      snp_mafcut = cfg_get(cfg$snp_mafcut, 0.05),
+      remove_crosshyb = cfg_get(cfg$remove_crosshyb, TRUE),
+      remove_xy = cfg_get(cfg$remove_xy, FALSE),
+      replicate_strategy = cfg_get(cfg$replicate_strategy, "mean"),
+      NA_filter = cfg_get(cfg$probe_na_sample_frac, 0.5),
+      out_path = get_filepath("betas_clean.csv")
+    )
+  ),
+  
+  # 5.4 density and MDS plots
+  tar_target(
+    dnam_dmr_qc_plots,
+    plot_dmr_qc(
+      dnam_betas_clean,
+      sample_sheet = sample_sheet,
+      sample_id_col = cfg$sample_id_col,
+      condition_col = cfg_get(cfg$condition_col, "condition"),
+      out_pdf = get_filepath("dmr-qc_density-mds.pdf")
+    )
+  ),
+  
+  # 6.1 DMRcate (skipped, returns NULL, if the condition column is absent)
+  tar_target(
+    dnam_dmrcate,
+    run_dmrcate(
+      dnam_betas_clean,
+      sample_sheet = sample_sheet,
+      sample_id_col = cfg$sample_id_col,
+      condition_col = cfg_get(cfg$condition_col, "condition"),
+      reference_level = cfg$condition_reference,
+      covariate_cols = cfg$condition_covariates,
+      arraytype = cfg_get(cfg$dmr_arraytype, dmrcate_arraytype(dnam_platform)),
+      genome = cfg_get(cfg$dmr_genome, if (dnam_platform == "EPICv2") "hg38" else "hg19"),
+      cpg_fdr = cfg$dmr_cpg_fdr,
+      lambda = cfg_get(cfg$dmr_lambda, 1000),
+      C = cfg$dmr_C,
+      betacutoff = cfg$dmr_betacutoff,
+      min_cpgs = cfg_get(cfg$dmr_min_cpgs, 2),
+      plot_n = cfg_get(cfg$dmr_plot_n, 1),
+      out_path = get_filepath("dmrcate_dmrs.csv"),
+      plot_pdf = get_filepath("dmrcate_dmr-plots.pdf")
+    )
+  ),
+  
+  # Heatmaps of the per-CpG results (kept from the earlier limma step)
+  tar_target(
+    dnam_differential_heatmaps,
+    plot_differential_heatmaps(
+      beta_values = dnam_betas_clean,
+      sample_sheet = sample_sheet,
+      dm_results = dnam_dmrcate$cpg,
+      sample_id_col = cfg$sample_id_col,
+      condition_col = cfg_get(cfg$condition_col, "condition"),
+      out_pdf = get_filepath("differential-methylation_heatmaps.pdf")
+    )
+  )
+)
+
+
 # * CONUMEE 2 ---------------------------------------------------------------
 
 conumee_targets <- list(
@@ -321,6 +414,7 @@ svm_targets <- list(
 
 dnam_targets <- c(
   sesame_targets,
+  dmr_targets,
   conumee_targets,
   svm_targets
 )

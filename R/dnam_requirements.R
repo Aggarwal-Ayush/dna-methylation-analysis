@@ -33,6 +33,7 @@ required_packages =
       "tidyr",
       "stringr",
       "reshape2",
+      "ggrepel",
       "scales",
       "qs2",
       "RColorBrewer",
@@ -48,12 +49,14 @@ required_packages =
       "gtools",
       "readxl",
       "viridis",
-      "yaml"
+      "yaml",
+      "magick" # better rasterization
     ),
     bioc = c(
       "sesame",
       "minfi",
       "DMRcate",
+      "limma",
       "IlluminaHumanMethylationEPICv2manifest",
       "ComplexHeatmap",
       "circlize"
