@@ -1438,14 +1438,18 @@ run_differential_methylation <- function(
 #' For each contrast in `dm_results`, draws three ComplexHeatmap pages using
 #' only the samples of the two compared conditions: (1) all probes tested,
 #' (2) probes with P.Value <= p_cutoff, (3) probes with adj.P.Val <= p_cutoff.
-#' Columns are annotated/split by condition; rows are annotated/split by the
-#' condition in which the probe is more methylated (sign of delta_beta).
+#' Page 1 is capped to the top_n probes per condition (largest logFC in each
+#' direction). Columns are annotated/split by condition; rows are
+#' annotated/split by the condition in which the probe is more methylated
+#' (sign of logFC).
 #'
 #' @param beta_values probes x samples beta matrix (colnames = sample IDs)
 #' @param sample_sheet data.frame containing sample_id_col and condition_col
 #' @param dm_results output of run_differential_methylation()
 #' @param sample_id_col,condition_col sample sheet columns
 #' @param p_cutoff significance cutoff for pages 2 and 3
+#' @param top_n probes per condition shown on the all-probes page (ranked by
+#'   logFC in each direction)
 #' @param max_cluster_rows row clustering is skipped (rows ordered by P.Value)
 #'   for heatmaps with more probes than this
 #' @param out_pdf output PDF path
@@ -1457,6 +1461,7 @@ plot_differential_heatmaps <- function(
     sample_id_col = "Sample_ID",
     condition_col = "condition",
     p_cutoff = 0.05,
+    top_n = 10000,
     max_cluster_rows = 20000,
     out_pdf
 ) {
@@ -1489,7 +1494,7 @@ plot_differential_heatmaps <- function(
     }
     res <- res[order(res$P.Value), , drop = FALSE]
     mat <- betas[res$probe, , drop = FALSE]
-    up_in <- factor(ifelse(res$delta_beta > 0, case, ref), levels = c(ref, case))
+    up_in <- factor(ifelse(res$logFC > 0, case, ref), levels = c(ref, case))
     n_up <- table(up_in)
     
     top_anno <- ComplexHeatmap::HeatmapAnnotation(
@@ -1541,7 +1546,14 @@ plot_differential_heatmaps <- function(
     cond <- cond_all[samples]
     betas <- beta_values[res$probe, samples, drop = FALSE]
     
-    draw_page(res, betas, cond, paste0(ct, ": all probes"), case, ref)
+    top_probes <- c(
+      utils::head(res$probe[order(res$logFC, decreasing = TRUE)], top_n),
+      utils::head(res$probe[order(res$logFC)], top_n)
+    )
+    res_top <- res[res$probe %in% top_probes, , drop = FALSE]
+    draw_page(res_top, betas, cond,
+              sprintf("%s: top %s probes per condition by logFC", ct,
+                      format(top_n, big.mark = ",")), case, ref)
     draw_page(res[res$P.Value <= p_cutoff, , drop = FALSE], betas, cond,
               sprintf("%s: P <= %s", ct, p_cutoff), case, ref)
     draw_page(res[res$adj.P.Val <= p_cutoff, , drop = FALSE], betas, cond,
