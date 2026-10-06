@@ -32,6 +32,8 @@ The pipeline is configured through `dnam_config.yml`. Paths may be specified rel
 
 Probes are tested with limma on M-values (`run_differential_methylation()`), each group needs at least 2 samples, and samples with a blank condition are excluded. Results (`logFC` on the M-value scale, `delta_beta`, `P.Value`, `adj.P.Val`) are written to `<run_name>__differential-methylation.csv`, with one file per contrast when there are more than two groups.
 
+A PDF, `<run_name>__differential-methylation_heatmaps.pdf`, is also written with three ComplexHeatmap pages per comparison (using only the two compared groups): all probes, probes with `P.Value <= 0.05`, and probes with `adj.P.Val <= 0.05`. Columns are annotated and split by condition; rows are annotated and split by the condition with higher methylation. Row clustering is skipped (rows ordered by P-value) for heatmaps with more than 20,000 probes.
+
 ### Execution
 
 - **`ncores`**: Number of CPU cores available to parallelized steps. Set this according to the workstation or HPC allocation.

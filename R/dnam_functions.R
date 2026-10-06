@@ -1300,7 +1300,7 @@ process_betas <- function(ssets, mask_threshold = 1, collapse = FALSE, ncores = 
 #' @param min_per_group minimum samples required per tested group
 #' @param out_path optional CSV path; with several contrasts the contrast name
 #'   is added before the extension
-#' @return data.frame of results (probe, contrast, logFC, delta_beta, AveExpr,
+#' @return data.frame of results (probe, contrast, case, reference, logFC, delta_beta, AveExpr,
 #'   t, P.Value, adj.P.Val, B) or NULL
 run_differential_methylation <- function(
     beta_values,
@@ -1404,6 +1404,8 @@ run_differential_methylation <- function(
     data.frame(
       probe = rownames(tt),
       contrast = paste0(levels_ord[i + 1], "_vs_", reference_level),
+      case = levels_ord[i + 1],
+      reference = reference_level,
       logFC = tt$logFC,
       delta_beta = as.numeric(delta),
       AveExpr = tt$AveExpr,
@@ -1428,6 +1430,125 @@ run_differential_methylation <- function(
   }
   
   results
+}
+
+
+#' Heatmaps of beta values for differential methylation results (PDF)
+#'
+#' For each contrast in `dm_results`, draws three ComplexHeatmap pages using
+#' only the samples of the two compared conditions: (1) all probes tested,
+#' (2) probes with P.Value <= p_cutoff, (3) probes with adj.P.Val <= p_cutoff.
+#' Columns are annotated/split by condition; rows are annotated/split by the
+#' condition in which the probe is more methylated (sign of delta_beta).
+#'
+#' @param beta_values probes x samples beta matrix (colnames = sample IDs)
+#' @param sample_sheet data.frame containing sample_id_col and condition_col
+#' @param dm_results output of run_differential_methylation()
+#' @param sample_id_col,condition_col sample sheet columns
+#' @param p_cutoff significance cutoff for pages 2 and 3
+#' @param max_cluster_rows row clustering is skipped (rows ordered by P.Value)
+#'   for heatmaps with more probes than this
+#' @param out_pdf output PDF path
+#' @return out_pdf, or NULL if dm_results is NULL
+plot_differential_heatmaps <- function(
+    beta_values,
+    sample_sheet,
+    dm_results,
+    sample_id_col = "Sample_ID",
+    condition_col = "condition",
+    p_cutoff = 0.05,
+    max_cluster_rows = 20000,
+    out_pdf
+) {
+  if (is.null(dm_results) || nrow(dm_results) == 0) {
+    message("No differential methylation results; skipping heatmaps.")
+    return(NULL)
+  }
+  
+  meta <- as.data.frame(sample_sheet, check.names = FALSE)
+  cond_all <- trimws(as.character(meta[[condition_col]]))
+  names(cond_all) <- as.character(meta[[sample_id_col]])
+  
+  contrasts_df <- unique(dm_results[, c("contrast", "case", "reference")])
+  all_conds <- sort(unique(c(contrasts_df$case, contrasts_df$reference)))
+  cond_cols <- stats::setNames(
+    RColorBrewer::brewer.pal(max(3, length(all_conds)), "Set2")[seq_along(all_conds)],
+    all_conds
+  )
+  beta_cols <- circlize::colorRamp2(c(0, 0.5, 1), c("#2166AC", "white", "#B2182B"))
+  
+  blank_page <- function(msg) {
+    grid::grid.newpage()
+    grid::grid.text(msg, gp = grid::gpar(fontsize = 14))
+  }
+  
+  draw_page <- function(res, betas, cond, title, case, ref) {
+    if (nrow(res) == 0) {
+      blank_page(paste0(title, "\n\nNo probes."))
+      return(invisible(NULL))
+    }
+    res <- res[order(res$P.Value), , drop = FALSE]
+    mat <- betas[res$probe, , drop = FALSE]
+    up_in <- factor(ifelse(res$delta_beta > 0, case, ref), levels = c(ref, case))
+    n_up <- table(up_in)
+    
+    top_anno <- ComplexHeatmap::HeatmapAnnotation(
+      Condition = cond,
+      col = list(Condition = cond_cols[c(ref, case)]),
+      annotation_name_side = "left"
+    )
+    row_anno <- ComplexHeatmap::rowAnnotation(
+      `Higher methylation in` = up_in,
+      col = list(`Higher methylation in` = cond_cols[c(ref, case)])
+    )
+    cluster_rows <- nrow(mat) <= max_cluster_rows
+    
+    ht <- ComplexHeatmap::Heatmap(
+      mat,
+      name = "Beta",
+      col = beta_cols,
+      column_title = sprintf("%s (n = %s probes; %s)", title, format(nrow(mat), big.mark = ","),
+                             paste0(names(n_up), ": ", n_up, collapse = ", ")),
+      top_annotation = top_anno,
+      right_annotation = row_anno,
+      column_split = factor(cond, levels = c(ref, case)),
+      row_split = up_in,
+      cluster_rows = cluster_rows,
+      cluster_columns = TRUE,
+      show_row_names = FALSE,
+      show_column_names = TRUE,
+      show_row_dend = FALSE,
+      use_raster = TRUE,
+      raster_quality = 2
+    )
+    ComplexHeatmap::draw(ht, merge_legend = TRUE)
+  }
+  
+  n_cols_max <- max(vapply(seq_len(nrow(contrasts_df)), function(i) {
+    sum(cond_all %in% c(contrasts_df$case[i], contrasts_df$reference[i]))
+  }, numeric(1)))
+  grDevices::pdf(out_pdf, width = max(8, 4 + 0.35 * n_cols_max), height = 9)
+  on.exit(grDevices::dev.off(), add = TRUE)
+  
+  for (i in seq_len(nrow(contrasts_df))) {
+    ct <- contrasts_df$contrast[i]
+    case <- contrasts_df$case[i]
+    ref <- contrasts_df$reference[i]
+    res <- dm_results[dm_results$contrast == ct, , drop = FALSE]
+    
+    samples <- names(cond_all)[cond_all %in% c(case, ref)]
+    samples <- intersect(samples, colnames(beta_values))
+    cond <- cond_all[samples]
+    betas <- beta_values[res$probe, samples, drop = FALSE]
+    
+    draw_page(res, betas, cond, paste0(ct, ": all probes"), case, ref)
+    draw_page(res[res$P.Value <= p_cutoff, , drop = FALSE], betas, cond,
+              sprintf("%s: P <= %s", ct, p_cutoff), case, ref)
+    draw_page(res[res$adj.P.Val <= p_cutoff, , drop = FALSE], betas, cond,
+              sprintf("%s: adj. P <= %s", ct, p_cutoff), case, ref)
+  }
+  
+  out_pdf
 }
 
 

@@ -225,6 +225,18 @@ dmp_targets <- list(
       covariate_cols = cfg$condition_covariates,
       out_path = get_filepath("differential-methylation.csv")
     )
+  ),
+  
+  tar_target(
+    dnam_differential_heatmaps,
+    plot_differential_heatmaps(
+      beta_values = dnam_betas_standard,
+      sample_sheet = sample_sheet,
+      dm_results = dnam_differential,
+      sample_id_col = cfg$sample_id_col,
+      condition_col = if (is.null(cfg$condition_col)) "condition" else cfg$condition_col,
+      out_pdf = get_filepath("differential-methylation_heatmaps.pdf")
+    )
   )
 )
 
