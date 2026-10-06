@@ -11,8 +11,8 @@ sample_id_col: "Sample_ID"
 sample_sex_col: "Sex"
 
 # Optional differential methylation (skipped if the column is absent)
-condition_col: "condition"
-condition_reference: null     # baseline level; null = first level alphabetically
+condition_col: "Condition"
+condition_reference: "Dura"     # baseline level; null = first level alphabetically
 condition_covariates: null    # optional extra sample sheet columns, e.g. ["Sex"]
 
 # Execution
