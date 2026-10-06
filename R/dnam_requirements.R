@@ -49,7 +49,8 @@ required_packages =
       "gtools",
       "readxl",
       "viridis",
-      "yaml"
+      "yaml",
+      "magick" # better rasterization
     ),
     bioc = c(
       "sesame",
