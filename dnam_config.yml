@@ -55,8 +55,8 @@ genes_to_annotate: "default"
 # CNA calling
 # Use density plot in cna-report.pdf to determine the appropriate cutoff
 chr_length_cut: 5
-segment_cut_loss: -0.25
-segment_cut_gain: 0.15
+segment_cut_loss: -0.05
+segment_cut_gain: 0.05
 
 # Notes:
 # - sample_sheet must contain a Basename column pointing to IDAT basenames.
