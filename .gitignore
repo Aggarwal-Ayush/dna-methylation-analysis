@@ -57,3 +57,4 @@ dnam_targets-test/
 report/figures/
 report/dnam_report.md
 report/dnam_report_files/
+_targets.yaml

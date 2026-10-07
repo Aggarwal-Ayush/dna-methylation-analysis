@@ -20,6 +20,7 @@ condition_covariates: null      # optional extra sample sheet columns, e.g. ["Se
 detp_cutoff: 0.05               # probe/sample value fails if detection P > cutoff
 detp_probe_fail_frac: 0.2       # remove probes failing in > this fraction of samples (tutorial: 0.2 here, 0.1 for larger datasets)
 detp_sample_fail_frac: 0.1      # remove samples with >= this fraction of probes failing
+probe_na_sample_frac: 0.5       # remove probes with NA in >= this fraction of samples
 # 5.3 SNP / cross-hybridising / replicate probe handling
 snp_dist: 2                     # remove probes within this many bp of a common SNP (0 with snp_mafcut 1 keeps SNPs)
 snp_mafcut: 0.05                # minor allele frequency cut-off for SNPs

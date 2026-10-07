@@ -1355,6 +1355,7 @@ clean_betas_dmrcate <- function(
     remove_crosshyb = TRUE,
     remove_xy = FALSE,
     replicate_strategy = "mean",
+    NA_filter = 0.5,
     out_path = NULL
 ) {
   clean <- DMRcate::rmSNPandCH(
@@ -1371,7 +1372,10 @@ clean_betas_dmrcate <- function(
     clean <- DMRcate::rmPosReps(clean, filter.strategy = replicate_strategy)
   }
   
-  message("Probes after SNP/CH/replicate cleaning: ", nrow(clean), " (from ", nrow(betas), ")")
+  # Keeping probes with NA in < NA_filter% samples
+  clean <- clean[rowMeans(is.na(clean)) < NA_filter, ]
+  
+  message("Probes after SNP/CH/replicate/NA cleaning: ", nrow(clean), " (from ", nrow(betas), ")")
   if (!is.null(out_path)) save_dynamic_file(clean, out_path, copy_to_main = TRUE, overwrite = TRUE)
   clean
 }
@@ -1529,11 +1533,20 @@ run_dmrcate <- function(
   
   # Design: ~ condition (+ covariates); coef picks the condition column
   design_df <- data.frame(condition = factor(cond, levels = levels_ord))
-  for (cc in covariate_cols) design_df[[cc]] <- meta[[cc]]
-  design <- stats::model.matrix(
-    stats::reformulate(c("condition", paste0("`", covariate_cols, "`"))),
-    data = design_df
-  )
+  
+  if (!is.null(covariate_cols)) {
+    for (cc in covariate_cols) design_df[[cc]] <- meta[[cc]]
+    design <- stats::model.matrix(
+      stats::reformulate(c("condition", paste0("`", covariate_cols, "`"))),
+      data = design_df
+    )
+  } else {
+    design <- stats::model.matrix(
+      stats::reformulate(c("condition")),
+      data = design_df
+    )
+  }
+  
   if (nrow(design) <= ncol(design)) {
     stop("Not enough samples to fit the design (", nrow(design), " samples, ",
          ncol(design), " coefficients).", call. = FALSE)

@@ -248,6 +248,7 @@ dmr_targets <- list(
       remove_crosshyb = cfg_get(cfg$remove_crosshyb, TRUE),
       remove_xy = cfg_get(cfg$remove_xy, FALSE),
       replicate_strategy = cfg_get(cfg$replicate_strategy, "mean"),
+      NA_filter = cfg_get(cfg$probe_na_sample_frac, 0.5),
       out_path = get_filepath("betas_clean.csv")
     )
   ),
@@ -413,7 +414,7 @@ svm_targets <- list(
 
 dnam_targets <- c(
   sesame_targets,
-  dmp_targets,
+  dmr_targets,
   conumee_targets,
   svm_targets
 )
