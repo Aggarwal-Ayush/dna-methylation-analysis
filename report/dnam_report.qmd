@@ -21,7 +21,12 @@ params:
 #     -P results_dir:results -P run_name:test
 #   Rscript report/export_to_site.R ../aggarwal-ayush.github.io
 
-res_dir <- normalizePath(file.path("..",params$results_dir, params$run_name))
+# Quarto runs this file from report/, so relative results_dir values are
+# resolved against the project root (..); absolute paths are used as given.
+is_abs <- grepl("^(/|~|[A-Za-z]:[/\\\\])", params$results_dir)
+res_root <- if (is_abs) params$results_dir else file.path("..", params$results_dir)
+res_dir <- normalizePath(file.path(res_root, params$run_name), winslash = "/", mustWork = FALSE)
+if (!dir.exists(res_dir)) stop("Results folder not found: ", res_dir, call. = FALSE)
 f <- function(suffix) file.path(res_dir, paste0(params$run_name, "__", suffix))
 fig_dir <- "figures"
 dir.create(fig_dir, showWarnings = FALSE)
