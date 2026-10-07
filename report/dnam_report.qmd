@@ -21,12 +21,12 @@ params:
 #     -P results_dir:results -P run_name:test
 #   Rscript report/export_to_site.R ../aggarwal-ayush.github.io
 
-res_dir <- file.path(params$results_dir, params$run_name)
+res_dir <- normalizePath(file.path("..",params$results_dir, params$run_name))
 f <- function(suffix) file.path(res_dir, paste0(params$run_name, "__", suffix))
 fig_dir <- "figures"
 dir.create(fig_dir, showWarnings = FALSE)
 
-read_if <- function(path) if (file.exists(path)) utils::read.csv(path, check.names = FALSE) else NULL
+read_if <- function(path) if (file.exists(path)) utils::read.csv(path, check.names = FALSE, tryLogical = F) else NULL
 
 # Convert page `pages` of a pipeline PDF to PNG; returns markdown image links
 pdf_to_png <- function(pdf, stem, pages = NULL) {
