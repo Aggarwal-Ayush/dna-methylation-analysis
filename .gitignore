@@ -52,3 +52,8 @@ rsconnect/
 dnam_targets-test/
 /results
 .pipeline_config.rds
+
+# Rendered report
+report/figures/
+report/dnam_report.md
+report/dnam_report_files/

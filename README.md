@@ -122,3 +122,14 @@ All outputs are written under:
 `results/<run_name>/`
 
 with a manifest CSV listing the main artifacts.
+
+## Short report for the website
+
+`report/dnam_report.qmd` builds a short markdown report (QC, SNP heatmap, CNA summary, classifier, DMRs and heatmaps) from a finished run. Sections whose outputs are missing are skipped. It needs `quarto` and the `pdftools` R package (PDFs are converted to PNG).
+
+```bash
+quarto render report/dnam_report.qmd --to gfm -P results_dir:results -P run_name:test
+Rscript report/export_to_site.R ../aggarwal-ayush.github.io
+```
+
+The export script writes `_dnam-report-results.md` and `images/dnam-report/` into the website repo, where `dnam-pipeline-report.qmd` includes them.

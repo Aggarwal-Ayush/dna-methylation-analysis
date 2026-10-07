@@ -1,0 +1,141 @@
+---
+format: gfm
+execute:
+  echo: false
+  warning: false
+  message: false
+params:
+  results_dir: "results"
+  run_name: "test"
+  fig_dpi: 110
+  top_n_dmrs: 10
+---
+
+```{r setup}
+# Short report from a pipeline run. Reads the files written by the pipeline to
+# <results_dir>/<run_name>/ and renders GitHub-flavoured markdown. PDFs from the
+# pipeline are converted to PNG in report/figures/ (needs the pdftools package).
+# Sections whose output file is missing are skipped.
+#
+#   quarto render report/dnam_report.qmd --to gfm \
+#     -P results_dir:results -P run_name:test
+#   Rscript report/export_to_site.R ../aggarwal-ayush.github.io
+
+res_dir <- file.path(params$results_dir, params$run_name)
+f <- function(suffix) file.path(res_dir, paste0(params$run_name, "__", suffix))
+fig_dir <- "figures"
+dir.create(fig_dir, showWarnings = FALSE)
+
+read_if <- function(path) if (file.exists(path)) utils::read.csv(path, check.names = FALSE) else NULL
+
+# Convert page `pages` of a pipeline PDF to PNG; returns markdown image links
+pdf_to_png <- function(pdf, stem, pages = NULL) {
+  if (!file.exists(pdf)) return(character())
+  if (!requireNamespace("pdftools", quietly = TRUE)) {
+    warning("pdftools not installed; skipping ", basename(pdf))
+    return(character())
+  }
+  n <- pdftools::pdf_info(pdf)$pages
+  pages <- if (is.null(pages)) seq_len(n) else intersect(pages, seq_len(n))
+  out <- file.path(fig_dir, sprintf("%s-%d.png", stem, pages))
+  pdftools::pdf_convert(pdf, pages = pages, filenames = out, dpi = params$fig_dpi, verbose = FALSE)
+  sprintf("![](%s)", out)
+}
+
+show_images <- function(md) if (length(md)) cat(md, sep = "\n\n")
+show_table <- function(df, n = Inf, ...) {
+  if (is.null(df)) return(invisible())
+  print(knitr::kable(utils::head(df, n), ...))
+}
+
+qc <- read_if(f("sesame-qc_flagged.csv"))
+```
+
+## Overview
+
+This report summarises a run of the DNA methylation pipeline (`r params$run_name`) on a small set of
+public Illumina 450K arrays. The pipeline processes IDATs with sesame, runs QC, calls
+copy-number alterations with conumee2, classifies samples, and finds differentially
+methylated regions with DMRcate.
+
+```{r qc-table, results='asis'}
+if (!is.null(qc)) {
+  cat("## Sample QC\n\n")
+  cat(nrow(qc), "samples were processed. Flagged samples are marked in the table.\n\n")
+  keep <- intersect(c("sample", "Sample_ID", "frac_dt_mk", "mean_intensity_MU", "RGdistort",
+                      "infered_sex", "any_flag", "flag_reason"), names(qc))
+  show_table(qc[, if (length(keep)) keep else names(qc), drop = FALSE], digits = 3)
+}
+```
+
+```{r snp, results='asis'}
+img <- pdf_to_png(f("sesame-qc_snp-heatmap.pdf"), "snp-heatmap")
+if (length(img)) {
+  cat("\n\n### SNP-probe heatmap\n\n",
+      "Samples from the same individual should cluster together.\n\n")
+  show_images(img)
+}
+```
+
+```{r survey, results='asis'}
+img <- pdf_to_png(f("dmr-qc_density-mds.pdf"), "density-mds")
+if (length(img)) {
+  cat("\n\n## Beta-value distributions and MDS\n\n",
+      "Density plots (by group and by sample) and an MDS plot of the cleaned beta values ",
+      "after detection p-value, SNP, cross-hybridising and replicate-probe filtering.\n\n")
+  show_images(img)
+}
+```
+
+```{r cna, results='asis'}
+seg <- read_if(f("conumee2_cna-segments.csv"))
+summ <- list.files(res_dir, pattern = "conumee2_summary-plot.*\\.pdf$", full.names = TRUE)
+if (!is.null(seg) || length(summ)) cat("\n\n## Copy-number alterations\n\n")
+if (length(summ)) show_images(pdf_to_png(summ[1], "cna-summary"))
+if (!is.null(seg)) {
+  cat("\n\nNumber of CNA segments per sample:\n\n")
+  id_col <- intersect(c("ID", "sample", "Sample_ID"), names(seg))[1]
+  if (!is.na(id_col)) show_table(as.data.frame(table(Sample = seg[[id_col]])), row.names = FALSE)
+}
+```
+
+```{r classifier, results='asis'}
+cl <- read_if(f("meningioma_classification.csv"))
+if (!is.null(cl)) {
+  cat("\n\n## Methylation classifier\n\n")
+  show_table(cl, digits = 3, row.names = FALSE)
+}
+```
+
+```{r dmr, results='asis'}
+dmr <- read_if(f("dmrcate_dmrs.csv"))
+if (is.null(dmr)) {
+  alt <- list.files(res_dir, pattern = "dmrcate_dmrs.*\\.csv$", full.names = TRUE)
+  dmr <- if (length(alt)) do.call(rbind, lapply(alt, utils::read.csv, check.names = FALSE)) else NULL
+}
+cat("\n\n## Differentially methylated regions (DMRcate)\n\n")
+if (is.null(dmr)) {
+  cat("No DMRs were called for this run (for example, too few samples per group).\n\n")
+} else {
+  cat(nrow(dmr), "DMRs were called. Top", min(params$top_n_dmrs, nrow(dmr)),
+      "by minimum smoothed FDR:\n\n")
+  ord <- if ("min_smoothed_fdr" %in% names(dmr)) order(dmr$min_smoothed_fdr) else seq_len(nrow(dmr))
+  keep <- intersect(c("contrast", "seqnames", "start", "end", "width", "no.cpgs",
+                      "min_smoothed_fdr", "meandiff", "overlapping.genes"), names(dmr))
+  show_table(dmr[ord, keep, drop = FALSE], n = params$top_n_dmrs, digits = 3, row.names = FALSE)
+  show_images(pdf_to_png(f("dmrcate_dmr-plots.pdf"), "dmr-top", pages = 1))
+}
+```
+
+```{r heatmaps, results='asis'}
+img <- pdf_to_png(f("differential-methylation_heatmaps.pdf"), "diff-heatmap")
+if (length(img)) {
+  cat("\n\n## Differential methylation heatmaps\n\n",
+      "Beta values for the top probes per condition, probes with P <= 0.05 and probes with ",
+      "adjusted P <= 0.05. Columns are annotated by condition and rows by the condition with ",
+      "higher methylation.\n\n")
+  show_images(img)
+}
+```
+
+*Generated from pipeline outputs on `r format(Sys.Date())`.*
